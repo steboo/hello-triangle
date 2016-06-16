@@ -338,18 +338,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     HWND hwnd;
     MSG msg;
 
-    wc.cbSize                   = sizeof(WNDCLASSEX);
-    wc.style                    = CS_OWNDC;
+    wc.cbSize           = sizeof(WNDCLASSEX);
+    wc.style            = CS_OWNDC;
     wc.lpfnWndProc      = WndProc;
-    wc.cbClsExtra           = 0;
-    wc.cbWndExtra           = 0;
-    wc.hInstance            = hInstance;
-    wc.hIcon                    = LoadIcon(NULL, IDI_APPLICATION);
-    wc.hCursor              = LoadCursor(NULL, IDC_ARROW);
+    wc.cbClsExtra       = 0;
+    wc.cbWndExtra       = 0;
+    wc.hInstance        = hInstance;
+    wc.hIcon            = LoadIcon(NULL, IDI_APPLICATION);
+    wc.hCursor          = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground    = NULL; //(HBRUSH)(COLOR_BACKGROUND);
     wc.lpszMenuName     = NULL;
     wc.lpszClassName    = "hellotriangle";
-    wc.hIconSm              = LoadIcon(NULL, IDI_APPLICATION);
+    wc.hIconSm          = LoadIcon(NULL, IDI_APPLICATION);
 
     if (!RegisterClassEx(&wc))
     {
