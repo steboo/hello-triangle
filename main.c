@@ -18,6 +18,8 @@ extern _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001;
 
 // These are not defined in any of our headers
 typedef HGLRC (WINAPI * PFNWGLCREATECONTEXTATTRIBSARBPROC) (HDC hDC, HGLRC hShareContext, const int *attribList);
+typedef BOOL (APIENTRY * PFNWGLSWAPINTERVALFARPROC) (int);
+extern PFNWGLSWAPINTERVALFARPROC wglSwapIntervalEXT;
 #define WGL_CONTEXT_MAJOR_VERSION_ARB  0x2091
 #define WGL_CONTEXT_MINOR_VERSION_ARB  0x2092
 #define WGL_CONTEXT_FLAGS_ARB 0x2094
@@ -49,7 +51,118 @@ static HGLRC g_context;
 static GLuint g_vertexArrayID;
 static GLuint g_vertexBuffer;
 
-static 
+void createContext(HWND hwnd)
+{
+    PIXELFORMATDESCRIPTOR pfd =
+    {
+        sizeof(PIXELFORMATDESCRIPTOR),
+        1,
+        PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,      //Flags
+        PFD_TYPE_RGBA,                      //The kind of framebuffer. RGBA or palette.
+        32,                                              //Colordepth of the framebuffer.
+        0, 0, 0, 0, 0, 0,
+        0,
+        0,
+        0,
+        0, 0, 0, 0,
+        24,                                              //Number of bits for the depthbuffer
+        8,                                              //Number of bits for the stencilbuffer
+        0,                                              //Number of Aux buffers in the framebuffer.
+        PFD_MAIN_PLANE,
+        0,
+        0, 0, 0
+    };
+
+    g_hDC = GetDC(hwnd);
+
+    if (g_hDC == NULL)
+    {
+        MessageBox(NULL, "GetDC failed.", "Error", MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    int iPixelFormat = ChoosePixelFormat(g_hDC, &pfd);
+
+    if (iPixelFormat == 0)
+    {
+        //GetLastError();
+        MessageBox(NULL, "ChoosePixelFormat failed.", "Error", MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    BOOL result = SetPixelFormat(g_hDC, iPixelFormat, &pfd);
+
+    if (result == FALSE)
+    {
+        //GetLastError();
+        MessageBox(NULL, "SetPixelFormat failed.", "Error", MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    HGLRC tempContext = wglCreateContext(g_hDC);
+
+    if (tempContext == NULL)
+    {
+        //GetLastError();
+        MessageBox(NULL, "wglCreateContext failed.", "Error", MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    result = wglMakeCurrent(g_hDC, tempContext);
+
+    if (result == FALSE)
+    {
+        //GetLastError();
+        MessageBox(NULL, "wglMakeCurrent failed.", "Error", MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    int attribs[] =
+    {
+        WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
+        WGL_CONTEXT_MINOR_VERSION_ARB, 3,
+        WGL_CONTEXT_FLAGS_ARB, 0,
+        0
+    };
+
+    PFNWGLCREATECONTEXTATTRIBSARBPROC wglCreateContextAttribsARB = (PFNWGLCREATECONTEXTATTRIBSARBPROC) wglGetProcAddress("wglCreateContextAttribsARB");
+
+    g_context = wglCreateContextAttribsARB(g_hDC, 0, attribs);
+    result = wglMakeCurrent(NULL,NULL);
+
+    if (result == FALSE)
+    {
+        //GetLastError();
+        MessageBox(NULL, "wglMakeCurrent failed.", "Error", MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    result = wglDeleteContext(tempContext);
+
+    if (result == FALSE)
+    {
+        //GetLastError();
+        MessageBox(NULL, "wglDeleteContext failed.", "Error", MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    result = wglMakeCurrent(g_hDC, g_context);
+
+    if (result == FALSE)
+    {
+        //GetLastError();
+        MessageBox(NULL, "wglMakeCurrent failed.", "Error", MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    MessageBox(NULL, (char*)glGetString(GL_VERSION), "OpenGL Version", MB_OK);
+
+    if (!g_context)
+    {
+        MessageBox(NULL, "g_context empty.", "Error", MB_OK | MB_ICONERROR);
+        return;
+    }
+}
 
 void prepareScene(void)
 {
@@ -269,6 +382,22 @@ void prepareScene(void)
     for (GLenum err = glGetError(); err != GL_NO_ERROR; err = glGetError()) {
         MessageBox(NULL, (char*)gluErrorString(err), "Error during init", MB_OK | MB_ICONERROR);
     }
+
+    PFNWGLSWAPINTERVALFARPROC wglSwapIntervalEXT = (PFNWGLSWAPINTERVALFARPROC)wglGetProcAddress("wglSwapIntervalEXT");
+
+    if (wglSwapIntervalEXT == NULL)
+    {
+        //GetLastError();
+        MessageBox(NULL, "Unable to load wglSwapIntervalEXT.", "Error", MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    BOOL result = wglSwapIntervalEXT(1);
+
+    if (!result)
+    {
+        MessageBox(NULL, "Unable to enable vsync.", "Error", MB_OK | MB_ICONERROR);
+    }
 }
 
 void display(void)
@@ -374,6 +503,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     ShowWindow(hwnd, nCmdShow);
     UpdateWindow(hwnd);
 
+    HANDLE hTimer = CreateWaitableTimer(NULL, FALSE, NULL);
+
+    if (hTimer == NULL)
+    {
+        // Timer creation failed
+        return 1;
+    }
+
+    LARGE_INTEGER liDueTime;
+    liDueTime.QuadPart = -1000000LL;
+    SetWaitableTimer(hTimer, &liDueTime, 1000, NULL, NULL, 0);
+
     while (1) // GetMessage(&msg, NULL, 0, 0) > 0
     { 
         if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
@@ -388,10 +529,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         }
         else
         {
-            display();
-            SwapBuffers(g_hDC);
+            if (WaitForSingleObject(hTimer, 10) == WAIT_OBJECT_0)
+            {
+                display();
+                SwapBuffers(g_hDC);
+            }
         }
     }
+
+    CloseHandle(hTimer);
 
     return msg.wParam;
 }
@@ -418,119 +564,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             PostQuitMessage(0);
         break;
         case WM_CREATE:
-        {
-            PIXELFORMATDESCRIPTOR pfd =
-            {
-                sizeof(PIXELFORMATDESCRIPTOR),
-                1,
-                PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,      //Flags
-                PFD_TYPE_RGBA,                      //The kind of framebuffer. RGBA or palette.
-                32,                                              //Colordepth of the framebuffer.
-                0, 0, 0, 0, 0, 0,
-                0,
-                0,
-                0,
-                0, 0, 0, 0,
-                24,                                              //Number of bits for the depthbuffer
-                8,                                              //Number of bits for the stencilbuffer
-                0,                                              //Number of Aux buffers in the framebuffer.
-                PFD_MAIN_PLANE,
-                0,
-                0, 0, 0
-            };
-
-            g_hDC = GetDC(hwnd);
-
-            if (g_hDC == NULL)
-            {
-                MessageBox(NULL, "GetDC failed.", "Error", MB_OK | MB_ICONERROR);
-                break;
-            }
-
-            int iPixelFormat = ChoosePixelFormat(g_hDC, &pfd);
-
-            if (iPixelFormat == 0)
-            {
-                //GetLastError();
-                MessageBox(NULL, "ChoosePixelFormat failed.", "Error", MB_OK | MB_ICONERROR);
-                break;
-            }
-
-            BOOL result = SetPixelFormat(g_hDC, iPixelFormat, &pfd);
-
-            if (result == FALSE)
-            {
-                //GetLastError();
-                MessageBox(NULL, "SetPixelFormat failed.", "Error", MB_OK | MB_ICONERROR);
-                break;
-            }
-
-            HGLRC tempContext = wglCreateContext(g_hDC);
-
-            if (tempContext == NULL)
-            {
-                //GetLastError();
-                MessageBox(NULL, "wglCreateContext failed.", "Error", MB_OK | MB_ICONERROR);
-                break;
-            }
-
-            result = wglMakeCurrent(g_hDC, tempContext);
-
-            if (result == FALSE)
-            {
-                //GetLastError();
-                MessageBox(NULL, "wglMakeCurrent failed.", "Error", MB_OK | MB_ICONERROR);
-                break;
-            }
-
-            int attribs[] =
-            {
-                WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
-                WGL_CONTEXT_MINOR_VERSION_ARB, 3,
-                WGL_CONTEXT_FLAGS_ARB, 0,
-                0
-            };
-
-            PFNWGLCREATECONTEXTATTRIBSARBPROC wglCreateContextAttribsARB = (PFNWGLCREATECONTEXTATTRIBSARBPROC) wglGetProcAddress("wglCreateContextAttribsARB");
-
-            g_context = wglCreateContextAttribsARB(g_hDC, 0, attribs);
-            result = wglMakeCurrent(NULL,NULL);
-
-            if (result == FALSE)
-            {
-                //GetLastError();
-                MessageBox(NULL, "wglMakeCurrent failed.", "Error", MB_OK | MB_ICONERROR);
-                break;
-            }
-
-            result = wglDeleteContext(tempContext);
-
-            if (result == FALSE)
-            {
-                //GetLastError();
-                MessageBox(NULL, "wglDeleteContext failed.", "Error", MB_OK | MB_ICONERROR);
-                break;
-            }
-
-            result = wglMakeCurrent(g_hDC, g_context);
-
-            if (result == FALSE)
-            {
-                //GetLastError();
-                MessageBox(NULL, "wglMakeCurrent failed.", "Error", MB_OK | MB_ICONERROR);
-                break;
-            }
-
-            MessageBox(NULL, (char*)glGetString(GL_VERSION), "OpenGL Version", MB_OK);
-
-            if (!g_context)
-            {
-                MessageBox(NULL, "g_context empty.", "Error", MB_OK | MB_ICONERROR);
-                break;
-            }
-
+            createContext(hwnd);
             prepareScene();
-        }
         break;
         default:
             return DefWindowProc(hwnd, uMsg, wParam, lParam);
